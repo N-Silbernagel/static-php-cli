@@ -29,6 +29,7 @@ on:
         description: Extensions to build statically (comma separated)
         required: true
         type: string
+      # NEW INPUT
       shared-extensions:
         description: Extensions to build shared (comma separated, optional)
         required: false
@@ -73,6 +74,7 @@ on:
         description: Extensions to build statically (comma separated)
         required: true
         type: string
+      # NEW INPUT
       shared-extensions:
         description: Extensions to build shared (comma separated, optional)
         required: false
@@ -121,7 +123,6 @@ jobs:
       - name: "Define"
         id: gendef
         run: |
-          # 1. Select the base command and runner based on OS
           case "${{ inputs.os }}" in
             linux-x86_64)
               DOWN_CMD="./bin/spc-alpine-docker download"
@@ -155,7 +156,7 @@ jobs:
               ;;
           esac
 
-          # 2. Combine static and shared extensions for the download step
+          # Combine extensions for DOWNLOAD command (we need sources for everything)
           ALL_EXTENSIONS="${{ inputs.extensions }}"
           if [ -n "${{ inputs.shared-extensions }}" ]; then
             ALL_EXTENSIONS="${ALL_EXTENSIONS},${{ inputs.shared-extensions }}"
@@ -164,19 +165,19 @@ jobs:
              echo "has-shared=false" >> "$GITHUB_OUTPUT"
           fi
 
-          # 3. Construct Download Command
+          # DOWNLOAD COMMAND construction
           DOWN_CMD="$DOWN_CMD --with-php=${{ inputs.php-version }} --for-extensions=${ALL_EXTENSIONS} --ignore-cache-sources=php-src"
 
-          # 4. Construct Build Command
-          # Add static extensions (passed as main argument for --build-cli usually, or --build-cli=... depending on spc version logic)
-          # Assuming the original logic BUILD_CMD="$BUILD_CMD ${{ inputs.extensions }}" works for the main target:
-          BUILD_CMD="$BUILD_CMD --build-cli=\"${{ inputs.extensions }}\""
+          # BUILD COMMAND construction
+          # 1. Add static extensions (Positional arguments) - KEPT IN ORIGINAL SPOT
+          BUILD_CMD="$BUILD_CMD ${{ inputs.extensions }}"
 
-          # Add shared extensions flag if present
+          # 2. Add shared extensions (Flag) - NEW
           if [ -n "${{ inputs.shared-extensions }}" ]; then
             BUILD_CMD="$BUILD_CMD --build-shared=\"${{ inputs.shared-extensions }}\""
           fi
 
+          # 3. Add other flags (KEPT AS ORIGINAL)
           if [ -n "${{ inputs.extra-libs }}" ]; then
             DOWN_CMD="$DOWN_CMD --for-libs=${{ inputs.extra-libs }}"
             BUILD_CMD="$BUILD_CMD --with-libs=${{ inputs.extra-libs }}"
@@ -188,15 +189,16 @@ jobs:
           if [ ${{ inputs.prefer-pre-built }} == true ]; then
               DOWN_CMD="$DOWN_CMD --prefer-pre-built"
           fi
-          # build-cli is handled above in the main extension list logic usually,
-          # but we keep these flags just in case the wrapper script needs them.
+          if [ ${{ inputs.build-cli }} == true ]; then
+              BUILD_CMD="$BUILD_CMD --build-cli"
+          fi
           if [ ${{ inputs.build-micro }} == true ]; then
               BUILD_CMD="$BUILD_CMD --build-micro"
           fi
           if [ ${{ inputs.build-fpm }} == true ]; then
               BUILD_CMD="$BUILD_CMD --build-fpm"
           fi
-          
+
           echo 'download='"$DOWN_CMD" >> "$GITHUB_OUTPUT"
           echo 'build='"$BUILD_CMD" >> "$GITHUB_OUTPUT"
           echo 'run='"$RUNS_ON" >> "$GITHUB_OUTPUT"
@@ -220,12 +222,11 @@ jobs:
         env:
           phpts: nts
 
-      # Cache downloaded source
       - id: cache-download
         uses: actions/cache@v4
         with:
           path: downloads
-          key: php-dependencies-${{ inputs.os }}-${{ inputs.php-version }} # Added version to key for safety
+          key: php-dependencies-${{ inputs.os }}-${{ inputs.php-version }}
 
       - name: "Download sources"
         run: ${{ needs.define-build.outputs.download }}
@@ -233,7 +234,6 @@ jobs:
       - name: "Build PHP"
         run: ${{ needs.define-build.outputs.build }}
 
-      # Upload cli executable
       - if: ${{ inputs.build-cli == true }}
         name: "Upload PHP cli SAPI"
         uses: actions/upload-artifact@v4
@@ -241,7 +241,6 @@ jobs:
           name: php-cli-${{ inputs.php-version }}-${{ inputs.os }}
           path: buildroot/bin/php
 
-      # Upload micro self-extracted executable
       - if: ${{ inputs.build-micro == true }}
         name: "Upload PHP micro SAPI"
         uses: actions/upload-artifact@v4
@@ -249,7 +248,6 @@ jobs:
           name: php-micro-${{ inputs.php-version }}-${{ inputs.os }}
           path: buildroot/bin/micro.sfx
 
-      # Upload fpm executable
       - if: ${{ inputs.build-fpm == true }}
         name: "Upload PHP fpm SAPI"
         uses: actions/upload-artifact@v4
@@ -257,20 +255,18 @@ jobs:
           name: php-fpm-${{ inputs.php-version }}-${{ inputs.os }}
           path: buildroot/bin/php-fpm
 
-      # NEW: Upload Shared Extensions (.so files)
+      # NEW STEP: Upload Shared Extensions
       - if: ${{ needs.define-build.outputs.has-shared == 'true' }}
         name: "Upload Shared Extensions"
         uses: actions/upload-artifact@v4
         with:
           name: php-extensions-${{ inputs.php-version }}-${{ inputs.os }}
-          # SPC outputs shared libs to buildroot/lib/ or buildroot/modules/ depending on version. 
-          # Using a wildcard pattern to catch it.
+          # Wildcard capture for .so files in lib or modules
           path: |
             buildroot/lib/extensions/*.so
             buildroot/modules/*.so
             buildroot/lib/*.so
 
-      # Upload extensions metadata
       - uses: actions/upload-artifact@v4
         name: "Upload License Files"
         with:
