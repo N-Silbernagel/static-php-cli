@@ -40,7 +40,7 @@ abstract class Shell
     public function setEnv(array $env): static
     {
         foreach ($env as $k => $v) {
-            if (trim($v) === '') {
+            if ($v === '') {
                 continue;
             }
             $this->env[$k] = trim($v);
