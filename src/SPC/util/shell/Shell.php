@@ -43,7 +43,7 @@ abstract class Shell
             if ($v === '') {
                 continue;
             }
-            $this->env[$k] = trim($v);
+            $this->env[$k] = $v;
         }
         return $this;
     }
